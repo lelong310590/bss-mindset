@@ -191,6 +191,8 @@ export const GET_DELETE_RULES_BY_ID = `${API_URL}/ro-rule/delete`
 
 Tất cả các endpoint sử dụng trong project sẽ lưu tại đây và được export ra và call http-request tại từng nơi.
 
+<i>Thay đổi này sẽ thực hiện ở tất các các http-request hiện tại</i>
+
 **2.Sử dụng 1 helper cho việc call các http-request** 
 
 example http.js
@@ -246,3 +248,104 @@ export const getShopConfig = (domain, token, apiVersion, dispatch) => {
 **3.Tách các http-request thành từng service riêng**
 
 <img src="/folder.png" alt="example folder">
+
+Mỗi service làm đúng vai trò là thực hiện các http-request, đặc biệt với các func dùng ở nhiều nơi (lấy danh sách product, danh sách customer, product tags, customer tags,...) thì có thể xử lý phần logic ngay trong func service
+
+example:
+
+<pre>
+import * as httpFacade from "../helper/http";
+import {reduxGetDataLog} from "../log";
+
+const apiVersion = API_VERSION
+
+/**
+ *
+ * @param domain
+ * @param token
+ * @param isConfigurationPage
+ * @returns {Promise<boolean>}
+ */
+export const getConfigResource = async ({domain, token, isConfigurationPage}) => {
+    let configuration = false
+    await httpFacade.request(httpFacade.GET_CONFIGURATION, {domain, token, apiVersion})
+        .then(r => {
+            configuration = isConfigurationPage ? r : false
+
+        })
+        .catch(err => {
+            reduxGetDataLog(domain, 'FAILED', err, 'Failed get RESOURCE_CONFIGURATION Location: services/configService.js line 13')
+        })
+
+    return configuration
+}
+</pre>
+
+Lúc đấy tại dispatcher (saga or toolkit) việc thực hiện call request sẽ gắn gọn hơn
+
+example với action call resource data tại saga (func nhiều dòng nhất)
+
+<pre>
+/**
+ * 
+ * @param domain
+ * @param token
+ * @param apiVersion
+ * @param dispatch
+ * @param id
+ * @returns {Promise<void>}
+ */
+export const getResourceData = async ({domain, token, apiVersion, dispatch, id}) => {
+    let realId = id !== "add";
+    let isConfigurationPage = id == null;
+
+    /**
+     * Fetch shop configuration
+     */
+    let configuration = await getConfigResource({domain, token, isConfigurationPage})
+
+    /**
+     * Fetch rule
+     */
+    let rule = await getRuleByIdResource({domain, id, realId})
+
+    /**
+     * Fetch Customer Tag
+     */
+    let customerTags = await getCustomerTagsResource({domain, token})
+
+    /**
+     * Fetch Product Tags
+     */
+    let productTags = await getProductTagResource({domain, token})
+
+    /**
+     * Fet Products
+     */
+    let products = await getProductResource({domain, token, rule})
+
+    /**
+     * Fetch customers
+     */
+    let customers = await getCustomerResource({domain, token, rule, configuration})
+
+    /**
+     * Fetch product collections
+     */
+    let collections = await getProductCollectionResource({domain, token})
+
+    /**
+     * Dispatch
+     */
+    dispatch(getQoResourceDataSuccess({
+        domain,
+        collections,
+        products,
+        productTags,
+        customers,
+        customerTags
+    }))
+}
+</pre>
+
+
